@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from gzip import open as gzopen
+import os
 
 
 # from itertools import izip
@@ -61,6 +62,12 @@ def trim(readPair, pattern):
 
 
 def do_trim(args):
+    # Check if input files exist
+    if not os.path.exists(args.fq):
+        raise FileNotFoundError(f"Input fastq file not found: {args.fq}")
+    if not os.path.exists(args.fq2):
+        raise FileNotFoundError(f"Input fastq file not found: {args.fq2}")
+
     if args.fq[-3:] == ".gz":
         fq1 = gzopen(args.fq, "rt")
         fq2 = gzopen(args.fq2, "rt")

@@ -69,13 +69,6 @@ if __name__ == "__main__":
         default=None,
     )
     call_parser.add_argument(
-        "-F",
-        "--featurefiles",
-        type=str,
-        help="bed file for features",
-        default=None,
-    )
-    call_parser.add_argument(
         "-rt",
         "--regionst",
         nargs="+",
@@ -238,7 +231,19 @@ if __name__ == "__main__":
         help="minimum consensus quality of alt allele, if not 0, in a read group to be considered for training",
         default=2,
     )
-
+    call_parser.add_argument(
+        "--naf",
+        type=float,
+        help="maximum VAF in matched normal for a mutation to be called",
+        default=0.01,
+    )
+    call_parser.add_argument(
+        "--rescue",
+        "-res",
+        type=bool,
+        help="output discarded variants with reason in the filter field",
+        default=False,
+    )
     ###########
     """
     Learn Arguments
@@ -416,6 +421,20 @@ if __name__ == "__main__":
         type=bool,
         help="Set to true when sample and matched normal are from the same starting DNA material",
         default=False,
+    )
+    estimate_parser.add_argument(
+        "-gb",
+        "--genebed",
+        type=str,
+        help="gene bed file, if gene coverage needs to be calculated",
+        default=None,
+    )
+    estimate_parser.add_argument(
+        "-rb",
+        "--reestimatebed",
+        type=str,
+        help="re-estimate bed file, if burden re-estimation is needed",
+        default=None,
     )
 
     summarize_parser = subparsers.add_parser(

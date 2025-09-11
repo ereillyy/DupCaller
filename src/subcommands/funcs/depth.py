@@ -42,6 +42,7 @@ def extractDepthSnv(bam, chrom, pos, ref, alt, params, minbq=1):
                 else:
                     otherAlleleCount += 1
     depth = refAlleleCount + altAlleleCount + otherAlleleCount
+    # print(f"calculate depth time:{(time.time()-start_time)/60}")
     return altAlleleCount, refAlleleCount, indelAlleleCount, depth
 
 

@@ -2,6 +2,8 @@ import math
 from multiprocessing import Pool
 import numpy as np
 from pysam import AlignmentFile as BAM
+from pysam import TabixFile as BED
+import pysam
 
 
 def createVcfStrings(chromDict, infoDict, formatDict, filterDict, recs):
@@ -29,6 +31,7 @@ def createVcfStrings(chromDict, infoDict, formatDict, filterDict, recs):
         alt = rec["alt"]
         ref = rec["ref"]
         infos = rec["infos"]
+        filter = rec["filter"]
         formats = rec["formats"]
         samples = rec["samples"]
         lineEntries = [
@@ -38,7 +41,7 @@ def createVcfStrings(chromDict, infoDict, formatDict, filterDict, recs):
             ref,
             alt,
             ".",
-            "PASS",
+            filter,
             ";".join([f"{info}={infos[info]}" for info in infoDict.keys()]),
             ":".join(formats),
             ":".join([str(s) for s in samples[0]]),
@@ -48,12 +51,23 @@ def createVcfStrings(chromDict, infoDict, formatDict, filterDict, recs):
     return "\n".join(lines) + "\n"
 
 
-def bamReadCount(bam, chrom, start, end, ref):
+def bamReadCount(bam, chrom, start, end, ref):  # , regionFile):
+    # if not regionFile:
     count = getAlignmentObject(bam, "rb", ref).count(chrom, start, end)
+    """
+    else:
+        regionFile = BED(regionFile,parser = pysam.asBed())
+        count = 0
+        if chrom in regionFile.contigs:
+            for interval in regionFile.fetch(chrom,start,end):
+                count += getAlignmentObject(bam, "rb", ref).count(interval.contig, interval.start, interval.end)
+        else:
+            count += 0
+    """
     return count
 
 
-def splitBamRegions(bams, num, contigs, step, ref):
+def splitBamRegions(bams, num, contigs, step, ref):  # , regionFile):
     bamObject = getAlignmentObject(bams[0], "rb", ref)
     contigs_set = set(contigs)
     contigs_sorted = [_ for _ in bamObject.references if _ in contigs]
@@ -89,6 +103,7 @@ def splitBamRegions(bams, num, contigs, step, ref):
                         current_start + k * step,
                         current_start + k * step + step,
                         ref,
+                        # regionFile,
                     )
                     for k in range(num)
                 ]
@@ -98,7 +113,13 @@ def splitBamRegions(bams, num, contigs, step, ref):
                 current_start += num * step
                 current_window += num
             current_arguments = [
-                (bam, contig, current_start + k * step, current_start + k * step + step, ref)
+                (
+                    bam,
+                    contig,
+                    current_start + k * step,
+                    current_start + k * step + step,
+                    ref,
+                )  # ,regionFile)
                 for k in range(window_nums_cumulative[c] - current_window)
             ]
             pool = Pool()

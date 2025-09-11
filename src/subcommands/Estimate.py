@@ -5,8 +5,9 @@ import matplotlib.patches as mpatches
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
-from pysam import VariantFile as VCF
+from pysam import VariantFile as VCF, TabixFile
 from scipy.stats import chi2, barnard_exact
+import pysam
 
 
 def calculate_ref_trinuc(args):
@@ -124,7 +125,6 @@ def estimate_96(trinuc_cov_by_rf, trinuc_mut_by_rf, ref_trinuc, n):
             mutnum, cov
         )
         trinuc_rate = np.where(trinuc_cov > 0, trinuc_mut / trinuc_cov, 0)
-        trinuc_rate = np.where(trinuc_cov > 0, trinuc_mut / trinuc_cov, 0)
         mutnum_corrected = trinuc_rate.dot(np.repeat(ref_trinuc, 3))
         burden_corrected[nn - 1] = mutnum_corrected / ref_trinuc.sum()
         burden_corrected_lb[nn - 1], burden_corrected_ub[nn - 1] = poisson_confint(
@@ -173,156 +173,448 @@ def estimate_id(trinuc_cov_by_rf, muts_by_rf, n):
 
 
 def do_estimate(args):
-    ref_trinuc = calculate_ref_trinuc(args)
-    prefix = args.prefix
-    if len(prefix.split("/")[-1]) == 0:
-        sample = prefix.split("/")[-2]
-    else:
-        sample = prefix.split("/")[-1]
-    trinuc_by_rf = pd.read_csv(
-        prefix + "/" + sample + "_trinuc_by_duplex_group.txt", sep="\t", index_col=0
-    )
-    ###Estimate SNV burden
-    vcf = VCF(prefix + "/" + sample + "_snv.vcf", "r")
-    mut_by_rf = dict()
-    trinuc_list = list()
-    trinuc2num = dict()
-    for minus_base in ["A", "T", "C", "G"]:
-        for ref_base in ["C", "T"]:
-            for plus_base in ["A", "T", "C", "G"]:
-                trinuc2num[minus_base + ref_base + plus_base] = len(trinuc_list)
-                trinuc_list.append(minus_base + ref_base + plus_base)
-    trinucSbs2num = dict()
-    num2trinucSbs = list()
-    for minus_base in ["A", "T", "C", "G"]:
-        for ref_base in ["C", "T"]:
-            for plus_base in ["A", "T", "C", "G"]:
-                alts = ["A", "T", "C", "G"]
-                alts.remove(ref_base)
-                for alt_base in alts:
-                    trinucSbs2num[
-                        minus_base + "[" + ref_base + ">" + alt_base + "]" + plus_base
-                    ] = len(num2trinucSbs)
-                    num2trinucSbs.append(
-                        minus_base + "[" + ref_base + ">" + alt_base + "]" + plus_base
-                    )
-    trinuc_by_rf_np = trinuc_by_rf.to_numpy()
-    trinuc_mut_np = np.zeros([96, len(trinuc_by_rf.columns)], dtype=int)
-    duplex_no_dict = dict()
-    revcomp = {"A": "T", "T": "A", "C": "G", "G": "C"}
-    for nn, duplex_no in enumerate(trinuc_by_rf.columns):
-        duplex_no_dict[duplex_no] = nn
-
-    if args.dilute:
-        vcf_out = VCF(
-            args.prefix + "/" + sample + "_snv_flt.vcf", "w", header=vcf.header
-        )
-    for rec in vcf.fetch():
-        chrom = rec.chrom
-        pos = rec.pos
-        ref = rec.ref
-        alt = rec.alts[0]
-        F1R2 = rec.info["F1R2"]
-        F2R1 = rec.info["F2R1"]
-        TAC = rec.samples["TUMOR"]["AC"]
-        if TAC > 1 and args.dilute:
-            TDP = rec.samples["TUMOR"]["DP"]
-            NAC = rec.samples["NORMAL"]["AC"]
-            NDP = rec.samples["NORMAL"]["DP"]
-            barnard_p = barnard_exact([[TAC, TDP - TAC], [NAC, NDP - NAC]]).pvalue
-            if barnard_p <= 0.05:
-                continue
-        if args.dilute:
-            vcf_out.write(rec)
-        # duplex_no = str(min(F1R2, F2R1)) + "+" + str(max(F1R2, F2R1))
-        duplex_no = str(F1R2) + "+" + str(F2R1)
-        ref = rec.ref
-        if ref == "C" or ref == "T":
-            trinuc = rec.info["TN"]
-            alt = rec.alts[0]
+    if not args.reestimatebed:
+        ref_trinuc = calculate_ref_trinuc(args)
+        prefix = args.prefix
+        if len(prefix.split("/")[-1]) == 0:
+            sample = prefix.split("/")[-2]
         else:
-            trinuc_revcomp = rec.info["TN"]
-            trinuc = (
-                revcomp[trinuc_revcomp[2]]
-                + revcomp[trinuc_revcomp[1]]
-                + revcomp[trinuc_revcomp[0]]
+            sample = prefix.split("/")[-1]
+        trinuc_by_rf = pd.read_csv(
+            prefix + "/" + sample + "_trinuc_by_duplex_group.txt", sep="\t", index_col=0
+        )
+        ###Estimate SNV burden
+        vcf = VCF(prefix + "/" + sample + "_snv.vcf", "r")
+        mut_by_rf = dict()
+        trinuc_list = list()
+        trinuc2num = dict()
+        for minus_base in ["A", "T", "C", "G"]:
+            for ref_base in ["C", "T"]:
+                for plus_base in ["A", "T", "C", "G"]:
+                    trinuc2num[minus_base + ref_base + plus_base] = len(trinuc_list)
+                    trinuc_list.append(minus_base + ref_base + plus_base)
+        trinucSbs2num = dict()
+        num2trinucSbs = list()
+        for minus_base in ["A", "T", "C", "G"]:
+            for ref_base in ["C", "T"]:
+                for plus_base in ["A", "T", "C", "G"]:
+                    alts = ["A", "T", "C", "G"]
+                    alts.remove(ref_base)
+                    for alt_base in alts:
+                        trinucSbs2num[
+                            minus_base
+                            + "["
+                            + ref_base
+                            + ">"
+                            + alt_base
+                            + "]"
+                            + plus_base
+                        ] = len(num2trinucSbs)
+                        num2trinucSbs.append(
+                            minus_base
+                            + "["
+                            + ref_base
+                            + ">"
+                            + alt_base
+                            + "]"
+                            + plus_base
+                        )
+        trinuc_by_rf_np = trinuc_by_rf.to_numpy()
+        trinuc_mut_np = np.zeros([96, len(trinuc_by_rf.columns)], dtype=int)
+        duplex_no_dict = dict()
+        revcomp = {"A": "T", "T": "A", "C": "G", "G": "C"}
+        for nn, duplex_no in enumerate(trinuc_by_rf.columns):
+            duplex_no_dict[duplex_no] = nn
+
+        # Dictionary to track unique mutations and their counts
+        unique_mutations = {}
+
+        if args.dilute:
+            vcf_out = VCF(
+                args.prefix + "/" + sample + "_snv_flt.vcf", "w", header=vcf.header
             )
-            alt = revcomp[rec.alts[0]]
-        trinucSbs = trinuc[0] + "[" + trinuc[1] + ">" + alt + "]" + trinuc[2]
-        trinuc_mut_np[trinucSbs2num[trinucSbs], duplex_no_dict[duplex_no]] += 1
-        trinuc_by_rf_np[trinuc2num[trinuc], duplex_no_dict[duplex_no]] -= 1
+        with open(f"{sample}/{sample}_stats.txt") as st:
+            lines = st.readlines()
+            unmasked_cov = int(lines[4].split("\t")[1])
+            unmasked_indel_cov = int(lines[6].split("\t")[1])
+            indel_cov = int(lines[5].split("\t")[1])
+        ###Calculate masked mutation rate
+        unmasked_mut_count = 0
+        for rec in vcf.fetch():
+            if "PASS" not in rec.filter and "masked" not in rec.filter:
+                continue
+            unmasked_mut_count += 1
+        unmasked_sbs_burden = float(unmasked_mut_count) / float(unmasked_cov)
+        unmasked_sbs_burden_lb, unmasked_sbs_burden_ub = poisson_confint(
+            unmasked_mut_count, unmasked_cov
+        )
+        for rec in vcf.fetch():
+            count_flag = 0
+            if "PASS" not in rec.filter:
+                continue
+            chrom = rec.chrom
+            pos = rec.pos
+            ref = rec.ref
+            alt = rec.alts[0]
+            TAC = rec.samples["TUMOR"]["AC"]
+            TDP = rec.samples["TUMOR"]["DP"]
+            mutation_key = (rec.chrom, rec.pos, rec.ref, rec.alts[0])
+            if not unique_mutations.get(mutation_key):
+                unique_mutations[mutation_key] = [0, TAC, TDP]
+                count_flag = 1
+            unique_mutations[mutation_key][0] += 1
+            if count_flag == 0:
+                continue
+            F1R2 = rec.info["F1R2"]
+            F2R1 = rec.info["F2R1"]
+            if TAC > 1 and args.dilute:
+                TDP = rec.samples["TUMOR"]["DP"]
+                NAC = rec.samples["NORMAL"]["AC"]
+                NDP = rec.samples["NORMAL"]["DP"]
+                barnard_p = barnard_exact([[TAC, TDP - TAC], [NAC, NDP - NAC]]).pvalue
+                if barnard_p <= 0.05:
+                    continue
+            if args.dilute:
+                vcf_out.write(rec)
+            # duplex_no = str(min(F1R2, F2R1)) + "+" + str(max(F1R2, F2R1))
+            duplex_no = str(F1R2) + "+" + str(F2R1)
+            ref = rec.ref
+            if ref == "C" or ref == "T":
+                trinuc = rec.info["TN"]
+                alt = rec.alts[0]
+            else:
+                trinuc_revcomp = rec.info["TN"]
+                trinuc = (
+                    revcomp[trinuc_revcomp[2]]
+                    + revcomp[trinuc_revcomp[1]]
+                    + revcomp[trinuc_revcomp[0]]
+                )
+                alt = revcomp[rec.alts[0]]
+            trinucSbs = trinuc[0] + "[" + trinuc[1] + ">" + alt + "]" + trinuc[2]
+            trinuc_mut_np[trinucSbs2num[trinucSbs], duplex_no_dict[duplex_no]] += 1
+            trinuc_by_rf_np[trinuc2num[trinuc], duplex_no_dict[duplex_no]] -= 1
 
-    base2num = {"A": 0, "T": 1, "C": 2, "G": 3}
-    print("......Estimating mutational burden and SBS96 profile........")
-    (
-        corrected_trinuc_num,
-        burden,
-        burden_lb,
-        burden_ub,
-        uburden,
-        uburden_lb,
-        uburden_ub,
-        mutnum_uncorrected,
-        mutnum_per_genome,
-        genome_cov,
-    ) = estimate_96(trinuc_by_rf_np, trinuc_mut_np, ref_trinuc, trinuc_by_rf.columns)
-    corrected_trinuc_pd = pd.DataFrame(
-        corrected_trinuc_num[:, [0]].astype(int),
-        index=num2trinucSbs,
-        columns=["number"],
-    )
-    corrected_trinuc_pd.to_csv(
-        args.prefix + "/" + sample + "_sbs_96_corrected.txt", sep="\t"
-    )
-    fig, ax = plt.subplots(figsize=(60, 10))
-    ax = plot_96(ax, corrected_trinuc_pd)
-    fig.savefig(args.prefix + "/" + sample + "_sbs_96_corrected.png", dpi=300)
-    fig, ax = plt.subplots(figsize=(20, 15))
-    ax.plot(range(1, 6), uburden)
-    ax.plot(range(1, 6), uburden_lb)
-    ax.plot(range(1, 6), uburden_ub)
-    ax.set_yscale("log")
-    fig.savefig(
-        args.prefix + "/" + sample + "_sbs_burden_by_min_read_group_size.png", dpi=300
-    )
-    with open(args.prefix + "/" + sample + "_sbs_burden.txt", "w") as f:
-        f.write(f"Uncorrected burden\t{uburden[0]}\n")
-        f.write(f"Uncorrected burden 95% lower\t{uburden_lb[0]}\n")
-        f.write(f"Uncorrected burden 95% upper\t{uburden_ub[0]}\n")
-        f.write(f"Uncorrected mutation number\t{mutnum_uncorrected}\n")
-        f.write(f"Corrected burden\t{burden[0]}\n")
-        f.write(f"Corrected burden 95% lower\t{burden_lb[0]}\n")
-        f.write(f"Corrected burden 95% upper\t{burden_ub[0]}\n")
-        f.write(f"mutation number per genome\t{mutnum_per_genome}\n")
-        f.write(f"genome coverage\t{genome_cov}\n")
+        base2num = {"A": 0, "T": 1, "C": 2, "G": 3}
+        print("......Estimating mutational burden and SBS96 profile........")
+        (
+            corrected_trinuc_num,
+            burden,
+            burden_lb,
+            burden_ub,
+            uburden,
+            uburden_lb,
+            uburden_ub,
+            mutnum_uncorrected,
+            mutnum_per_genome,
+            genome_cov,
+        ) = estimate_96(
+            trinuc_by_rf_np, trinuc_mut_np, ref_trinuc, trinuc_by_rf.columns
+        )
+        corrected_trinuc_pd = pd.DataFrame(
+            corrected_trinuc_num[:, [0]],  # .astype(int),
+            index=num2trinucSbs,
+            columns=["number"],
+        )
+        corrected_trinuc_pd.to_csv(
+            args.prefix + "/" + sample + "_sbs_96_corrected.txt", sep="\t"
+        )
+        fig, ax = plt.subplots(figsize=(60, 10))
+        ax = plot_96(ax, corrected_trinuc_pd)
+        fig.savefig(args.prefix + "/" + sample + "_sbs_96_corrected.png", dpi=300)
+        fig, ax = plt.subplots(figsize=(20, 15))
+        ax.plot(range(1, 6), uburden)
+        ax.plot(range(1, 6), uburden_lb)
+        ax.plot(range(1, 6), uburden_ub)
+        ax.set_yscale("log")
+        fig.savefig(
+            args.prefix + "/" + sample + "_sbs_burden_by_min_read_group_size.png",
+            dpi=300,
+        )
 
-    table = pd.DataFrame(
-        np.hstack(
-            [
-                _.reshape(5, 1)
-                for _ in [
-                    np.arange(1, 6, 1, dtype=np.int16),
-                    uburden,
-                    uburden_lb,
-                    uburden_ub,
-                    burden,
-                    burden_lb,
-                    burden_ub,
+        with open(args.prefix + "/" + sample + "_sbs_burden.txt", "w") as f:
+            f.write(f"Uncorrected burden\t{uburden[0]}\n")
+            f.write(f"Uncorrected burden 95% lower\t{uburden_lb[0]}\n")
+            f.write(f"Uncorrected burden 95% upper\t{uburden_ub[0]}\n")
+            f.write(f"Uncorrected mutation number\t{mutnum_uncorrected}\n")
+            f.write(f"Corrected burden\t{burden[0]}\n")
+            f.write(f"Corrected burden 95% lower\t{burden_lb[0]}\n")
+            f.write(f"Corrected burden 95% upper\t{burden_ub[0]}\n")
+            f.write(f"mutation number per genome\t{mutnum_per_genome}\n")
+            f.write(f"genome coverage\t{genome_cov}\n")
+            f.write(f"Unmasked burden\t{unmasked_sbs_burden}\n")
+            f.write(f"Unmasked burden 95% lower\t{unmasked_sbs_burden_lb}\n")
+            f.write(f"Unmasked burden 95% upper\t{unmasked_sbs_burden_ub}\n")
+
+        table = pd.DataFrame(
+            np.hstack(
+                [
+                    _.reshape(5, 1)
+                    for _ in [
+                        np.arange(1, 6, 1, dtype=np.int16),
+                        uburden,
+                        uburden_lb,
+                        uburden_ub,
+                        burden,
+                        burden_lb,
+                        burden_ub,
+                    ]
                 ]
-            ]
-        ),
-        columns=[
-            "read number",
-            "Uncorrected_burden",
-            "Uncorrected_burden_lower",
-            "Uncorrected_burden_upper",
-            "Corrrected_burden",
-            "Corrected_burden_lower",
-            "Corrected_burden_upper",
-        ],
-    )
-    table.to_csv(
-        args.prefix + "/" + sample + "_sbs_burden_by_min_read_group_size.txt",
-        sep="\t",
-        index=False,
-    )
+            ),
+            columns=[
+                "read number",
+                "Uncorrected_burden",
+                "Uncorrected_burden_lower",
+                "Uncorrected_burden_upper",
+                "Corrrected_burden",
+                "Corrected_burden_lower",
+                "Corrected_burden_upper",
+            ],
+        )
+        table.to_csv(
+            args.prefix + "/" + sample + "_sbs_burden_by_min_read_group_size.txt",
+            sep="\t",
+            index=False,
+        )
+        vcf.close()
+        ###Calculate indel burdens
+        print("......Estimating Indel Burden.......")
+        vcf_indel = VCF(f"{sample}/{sample}_indel.vcf", "r")
+        unmasked_indel_count = 0
+        indel_count = 0
+        for rec in vcf_indel.fetch():
+            if "PASS" not in rec.filter and "masked" not in rec.filter:
+                continue
+            unmasked_indel_count += 1
+            if "PASS" not in rec.filter:
+                continue
+            indel_count += 1
+            mutation_key = (rec.chrom, rec.pos, rec.ref, rec.alts[0])
+            TAC = rec.samples["TUMOR"]["AC"]
+            TDP = rec.samples["TUMOR"]["DP"]
+            if not unique_mutations.get(mutation_key):
+                unique_mutations[mutation_key] = [0, TAC, TDP]
+            unique_mutations[mutation_key][0] += 1
+        unmasked_indel_burden = unmasked_indel_count / unmasked_indel_cov
+        unmasked_indel_burden_lb, unmasked_indel_burden_ub = poisson_confint(
+            unmasked_indel_count, unmasked_indel_cov
+        )
+        indel_burden = indel_count / indel_cov
+        indel_burden_lb, indel_burden_ub = poisson_confint(indel_count, indel_cov)
+        with open(args.prefix + "/" + sample + "_indel_burden.txt", "w") as f:
+            f.write(f"Indel burden\t{indel_burden}\n")
+            f.write(f"Indel burden 95% lower\t{indel_burden_lb}\n")
+            f.write(f"Indel burden 95% upper\t{indel_burden_ub}\n")
+            f.write(f"Indel number\t{indel_count}\n")
+            f.write(f"Unmasked Indel burden\t{unmasked_indel_burden}\n")
+            f.write(f"Unmasked Indel burden 95% lower\t{unmasked_indel_burden_lb}\n")
+            f.write(f"Unmasked Indel burden 95% upper\t{unmasked_indel_burden_ub}\n")
+        # Process unique mutations to extract duplex depths and create allele counts table
+        print("......Processing unique mutations for duplex allele counts.......")
+        coverage_file = f"{sample}/{sample}_coverage.bed.gz"
+        allele_counts_data = []
+
+        # Open the coverage file using TabixFile
+        tbx = TabixFile(coverage_file)
+
+        for (chrom, pos, ref, alt), counts in unique_mutations.items():
+            duplex_depth = 0
+
+            try:
+                # Query the coverage file for this position
+                for row in tbx.fetch(chrom, pos - 1, pos):
+                    parts = row.split("\t")
+                    if len(parts) >= 5:
+                        # For SNVs, duplex depth is 4th column (index 3)
+                        # For INDELs, duplex depth is 5th column (index 4)
+                        if len(ref) == 1 and len(alt) == 1:
+                            # SNV case
+                            duplex_depth = int(parts[3]) if parts[3].isdigit() else 0
+                        else:
+                            # INDEL case
+                            duplex_depth = (
+                                int(parts[4])
+                                if len(parts) > 4 and parts[4].isdigit()
+                                else 0
+                            )
+                        break
+                gene_name = "."
+                if args.genebed:
+                    for g in TabixFile(args.genebed).fetch(chrom, pos - 1, pos):
+                        gene_name = g.split("\t")[3].split("_")[0]
+                        break
+
+            except Exception as e:
+                print(f"Warning: Could not query coverage for {chrom}:{pos}: {e}")
+                duplex_depth = 0
+
+            allele_counts_data.append(
+                {
+                    "chromosome": chrom,
+                    "position_start": pos,
+                    "ref": ref,
+                    "alt": alt,
+                    "count": counts[0],
+                    "duplex_depth": duplex_depth,
+                    "bam_alt_count": counts[1],
+                    "bam_depth": counts[2],
+                    "duplex_vcf": float(counts[0]) / float(duplex_depth),
+                    "bam_vcf": float(counts[1]) / float(counts[2]),
+                    "gene": gene_name,
+                }
+            )
+        tbx.close()
+
+        # Create DataFrame and write to file
+        allele_counts_df = pd.DataFrame(allele_counts_data)
+        allele_counts_file = args.prefix + "/" + sample + "_duplex_allele_counts.txt"
+        allele_counts_df.to_csv(allele_counts_file, sep="\t", index=False)
+        print(f"Duplex allele counts written to: {allele_counts_file}")
+        if args.genebed:
+            print(f"Calculating per-gene duplex coverage")
+            gene_dict = dict()
+            cds_len = dict()
+            for rec in TabixFile(args.genebed).fetch():
+                (chrom, start, end, gene_exon) = rec.split("\t")[0:4]
+                start = int(start)
+                end = int(end)
+                gene = gene_exon.split("_")[0]
+                gene_exon_cov = 0
+                for loc in TabixFile(f"{sample}/{sample}_coverage.bed.gz").fetch(
+                    chrom, start, end
+                ):
+                    gene_exon_cov += int(loc.split("\t")[3])
+                if gene_dict.get(gene):
+                    gene_dict[gene] += gene_exon_cov
+                    cds_len[gene] += end - start + 1
+                else:
+                    gene_dict[gene] = gene_exon_cov
+                    cds_len[gene] = end - start + 1
+            with open(args.prefix + "/" + sample + "_gene_coverage.txt", "w") as f:
+                for gene in gene_dict.keys():
+                    f.write(f"{gene}\t{gene_dict[gene]/cds_len[gene]}\n")
+
+    else:
+        print("Re-estimating mutational burden from provided bed file")
+        ref_trinuc = calculate_ref_trinuc(args)
+        prefix = args.prefix
+        if len(prefix.split("/")[-1]) == 0:
+            sample = prefix.split("/")[-2]
+        else:
+            sample = prefix.split("/")[-1]
+        tn_int = h5py.File(args.reference + ".tn.h5", "r")
+        trinuc_count = np.zeros(97)
+        trinucSbs_count = np.zeros(96)
+        cov_total = 0
+        indel_cov_total = 0
+        trinucSbs2num = dict()
+        num2trinucSbs = list()
+        for minus_base in ["A", "T", "C", "G"]:
+            for ref_base in ["C", "T"]:
+                for plus_base in ["A", "T", "C", "G"]:
+                    alts = ["A", "T", "C", "G"]
+                    alts.remove(ref_base)
+                    for alt_base in alts:
+                        trinucSbs2num[
+                            minus_base
+                            + "["
+                            + ref_base
+                            + ">"
+                            + alt_base
+                            + "]"
+                            + plus_base
+                        ] = len(num2trinucSbs)
+                        num2trinucSbs.append(
+                            minus_base
+                            + "["
+                            + ref_base
+                            + ">"
+                            + alt_base
+                            + "]"
+                            + plus_base
+                        )
+        revcomp = {"A": "T", "T": "A", "C": "G", "G": "C"}
+        vcf = VCF(prefix + "/" + sample + "_snv.vcf", "r")
+        for interval in TabixFile(args.reestimatebed, parser=pysam.asBed()).fetch():
+            for loc in TabixFile(f"{sample}/{sample}_coverage.bed.gz").fetch(
+                interval.contig, interval.start, interval.end
+            ):
+                chrom, start, end, cov, indel_cov = loc.split("\t")[0:5]
+                trinuc = tn_int[chrom][int(start)]
+                trinuc_count[trinuc] += int(cov)
+                cov_total += int(cov)
+                indel_cov_total += int(indel_cov)
+            for rec in vcf.fetch():
+                if "PASS" not in rec.filter:
+                    continue
+                if rec.chrom != interval.contig:
+                    continue
+                if rec.pos <= interval.start or rec.pos > interval.end:
+                    continue
+                chrom = rec.chrom
+                pos = rec.pos
+                ref = rec.ref
+                alt = rec.alts[0]
+                F1R2 = rec.info["F1R2"]
+                F2R1 = rec.info["F2R1"]
+                TAC = rec.samples["TUMOR"]["AC"]
+                if TAC > 1 and args.dilute:
+                    TDP = rec.samples["TUMOR"]["DP"]
+                    NAC = rec.samples["NORMAL"]["AC"]
+                    NDP = rec.samples["NORMAL"]["DP"]
+                    barnard_p = barnard_exact(
+                        [[TAC, TDP - TAC], [NAC, NDP - NAC]]
+                    ).pvalue
+                    if barnard_p <= 0.05:
+                        continue
+                if args.dilute:
+                    vcf_out.write(rec)
+                # duplex_no = str(min(F1R2, F2R1)) + "+" + str(max(F1R2, F2R1))
+                duplex_no = str(F1R2) + "+" + str(F2R1)
+                if ref == "C" or ref == "T":
+                    trinuc = rec.info["TN"]
+                    alt = rec.alts[0]
+                else:
+                    trinuc_revcomp = rec.info["TN"]
+                    trinuc = (
+                        revcomp[trinuc_revcomp[2]]
+                        + revcomp[trinuc_revcomp[1]]
+                        + revcomp[trinuc_revcomp[0]]
+                    )
+                    alt = revcomp[rec.alts[0]]
+                trinucSbs = trinuc[0] + "[" + trinuc[1] + ">" + alt + "]" + trinuc[2]
+                trinucSbs_count[trinucSbs2num[trinucSbs]] += 1
+        trinuc_cov_32 = trinuc_count[0:32] + trinuc_count[32:64]
+        trinuc_mut_cov = np.repeat(trinuc_cov_32, 3, axis=0)
+        trinucSbs_count = trinucSbs_count.astype(float)
+        trinuc_mut_cov = trinuc_mut_cov.astype(float)
+        trinuc_rate = np.where(trinuc_mut_cov > 0, trinucSbs_count / trinuc_mut_cov, 0)
+        corrected_trinuc_num = np.repeat(ref_trinuc, 3, axis=0) * trinuc_rate
+        mutnum_corrected = corrected_trinuc_num.sum()
+        ref_trinuc_sum = ref_trinuc.sum()
+        burden = mutnum_corrected / ref_trinuc_sum
+        burden_lb, burden_ub = poisson_confint(mutnum_corrected, ref_trinuc_sum)
+        mutnum = trinucSbs_count.sum()
+        uburden = mutnum / float(cov_total)
+        uburden_lb, uburden_ub = poisson_confint(mutnum, float(cov_total))
+        genome_cov = ref_trinuc_sum
+
+        with open(args.prefix + "/" + sample + "_sbs_burden_re_estimate.txt", "w") as f:
+            f.write(f"Uncorrected burden\t{uburden}\n")
+            f.write(f"Uncorrected burden 95% lower\t{uburden_lb}\n")
+            f.write(f"Uncorrected burden 95% upper\t{uburden_ub}\n")
+            f.write(f"Uncorrected mutation number\t{int(mutnum)}\n")
+            f.write(f"Corrected burden\t{burden}\n")
+            f.write(f"Corrected burden 95% lower\t{burden_lb}\n")
+            f.write(f"Corrected burden 95% upper\t{burden_ub}\n")
+            f.write(f"mutation number per genome\t{mutnum_corrected}\n")
+            f.write(f"genome coverage\t{genome_cov}\n")
+        corrected_trinuc_pd = pd.DataFrame(
+            corrected_trinuc_num,
+            index=num2trinucSbs,
+            columns=["number"],
+        )
+        fig, ax = plt.subplots(figsize=(60, 10))
+        ax = plot_96(ax, corrected_trinuc_pd)
+        fig.savefig(
+            args.prefix + "/" + sample + "_sbs_96_corrected_re_estimate.png", dpi=300
+        )

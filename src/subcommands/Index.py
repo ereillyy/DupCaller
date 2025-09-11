@@ -2,10 +2,15 @@
 import h5py
 import gzip
 import numpy as np
+import os
 from Bio import SeqIO
 
 
 def do_index(args):
+    ### Check if reference file exists
+    if not os.path.exists(args.reference):
+        raise FileNotFoundError(f"Reference file not found: {args.reference}")
+
     ### Load Fasta
     if args.reference.endswith(".gz"):
         with gzip.open(args.reference, "rt") as handle:

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # if __name__ == "__main__":
 import pandas as pd
+import os
 
 
 def do_summarize(args):
@@ -14,6 +15,12 @@ def do_summarize(args):
             stats_file = f"{sample}/{sample}_stats.txt"
             snv_burden_file = f"{sample}/{sample}_sbs_burden.txt"
             # indel_burden_file = f"{sample}/{sample}_indel_burden.txt"
+
+            if not os.path.exists(stats_file):
+                raise FileNotFoundError(f"Stats file not found: {stats_file}")
+            if not os.path.exists(snv_burden_file):
+                raise FileNotFoundError(f"SNV burden file not found: {snv_burden_file}")
+
             with open(stats_file) as stats:
                 lines = stats.readlines()
                 uniq_reads = int(lines[0].strip("\n").split("\t")[1])
@@ -44,16 +51,22 @@ def do_summarize(args):
                 f"{sample}\t{pf_reads}\t{uniq_reads}\t{pf_read_family}\t{dup_rate}\t{read_efficiency}\t{eff_cov}\t{uncorrected_mutnum}\t{uncorrected_burden}\t{uncorrected_burden_uci}\t{uncorrected_burden_lci}\t{corrected_mutnum}\t{genome_cov}\t{corrected_burden}\t{corrected_burden_uci}\t{corrected_burden_lci}\n"
             )
             if nn == 0:
-                sbs96_pd_now = pd.read_csv(
-                    f"{sample}/{sample}_sbs_96_corrected.txt", sep="\t", index_col=0
-                )
+                sbs96_file = f"{sample}/{sample}_sbs_96_corrected.txt"
+                if not os.path.exists(sbs96_file):
+                    raise FileNotFoundError(
+                        f"SBS96 corrected file not found: {sbs96_file}"
+                    )
+                sbs96_pd_now = pd.read_csv(sbs96_file, sep="\t", index_col=0)
                 sbs96_pd = pd.DataFrame(index=sbs96_pd_now.index)
                 sbs96_pd["MutationType"] = sbs96_pd.index
                 sbs96_pd[sample] = sbs96_pd_now["number"]
             else:
-                sbs96_pd_now = pd.read_csv(
-                    f"{sample}/{sample}_sbs_96_corrected.txt", sep="\t", index_col=0
-                )
+                sbs96_file = f"{sample}/{sample}_sbs_96_corrected.txt"
+                if not os.path.exists(sbs96_file):
+                    raise FileNotFoundError(
+                        f"SBS96 corrected file not found: {sbs96_file}"
+                    )
+                sbs96_pd_now = pd.read_csv(sbs96_file, sep="\t", index_col=0)
                 sbs96_pd[sample] = sbs96_pd_now["number"]
     sbs96_pd.sort_index(inplace=True)
     sbs96_pd.to_csv(
