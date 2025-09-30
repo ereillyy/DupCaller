@@ -446,7 +446,7 @@ def do_estimate(args):
             except Exception as e:
                 print(f"Warning: Could not query coverage for {chrom}:{pos}: {e}")
                 duplex_depth = 0
-
+            print(duplex_depth, chrom, pos)
             allele_counts_data.append(
                 {
                     "chromosome": chrom,
@@ -457,8 +457,8 @@ def do_estimate(args):
                     "duplex_depth": duplex_depth,
                     "bam_alt_count": counts[1],
                     "bam_depth": counts[2],
-                    "duplex_vcf": float(counts[0]) / float(duplex_depth),
-                    "bam_vcf": float(counts[1]) / float(counts[2]),
+                    "duplex_vaf": float(counts[0]) / float(duplex_depth),
+                    "bam_vaf": float(counts[1]) / float(counts[2]),
                     "gene": gene_name,
                 }
             )
