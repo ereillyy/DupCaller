@@ -1012,7 +1012,7 @@ def callBam(params, processNo):
                             ):
                                 continue
                             if antimask_indel[
-                                indel_pos - 1 - reference_mat_start - start_ind
+                                indel_pos - reference_mat_start - start_ind
                             ]:
                                 flt = flt_rs
                             else:
@@ -1594,7 +1594,7 @@ def callBam(params, processNo):
                         == 0
                     ):
                         continue
-                    if antimask_indel[indel_pos - 1 - reference_mat_start - start_ind]:
+                    if antimask_indel[indel_pos - reference_mat_start - start_ind]:
                         flt = flt_rs
                     else:
                         flt = "masked"
