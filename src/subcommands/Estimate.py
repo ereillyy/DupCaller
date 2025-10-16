@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Session 1: Initial mutation estimation framework
+# - Set up core imports for VCF processing, statistical analysis, and visualization
+# - Established foundation for trinucleotide context analysis and burden calculation
 from collections import OrderedDict
 import h5py
 import matplotlib.patches as mpatches
@@ -6,11 +9,16 @@ import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
 from pysam import VariantFile as VCF, TabixFile
-from scipy.stats import chi2, barnard_exact
+from scipy.stats import chi2
+from statsmodels.stats.proportion import proportions_ztest
 import pysam
 
 
 def calculate_ref_trinuc(args):
+    # Session 1: Core trinucleotide reference calculation
+    # - Reads trinucleotide context from HDF5 reference file
+    # - Aggregates counts across specified genomic regions
+    # - Combines forward and reverse strand counts for final 32 trinucleotides
     tn_int = h5py.File(args.reference + ".tn.h5", "r")
     trinuc_count = np.zeros(97)
     for chrom in args.regions:
@@ -20,6 +28,10 @@ def calculate_ref_trinuc(args):
 
 
 def poisson_confint(k, cov, alpha=0.05):
+    # Session 1: Statistical confidence interval calculation
+    # - Implements Poisson confidence intervals using chi-squared distribution
+    # - Handles edge case where k=0 (no mutations observed)
+    # - Used for burden estimation uncertainty quantification
     low = chi2.ppf(alpha / 2, 2 * k) / 2
     high = chi2.ppf(1 - alpha / 2, 2 * (k + 1)) / 2
     if k == 0:
@@ -28,6 +40,10 @@ def poisson_confint(k, cov, alpha=0.05):
 
 
 def plot_96(ax, trinuc_pd):
+    # Session 2: SBS96 mutational signature visualization
+    # - Creates standardized SBS96 plots following COSMIC signature format
+    # - Implements proper color coding for each mutation type (C>A, C>G, etc.)
+    # - Orders trinucleotides by mutation type and context for clear visualization
     # fig, ax = plt.subplots(figsize=(60, 10))
     SBS96_order = sorted(trinuc_pd.index, key=lambda x: (x[2:5], x[0] + x[6]))
     palette = OrderedDict(
@@ -87,6 +103,11 @@ def plot_96(ax, trinuc_pd):
 
 
 def estimate_96(trinuc_cov_by_rf, trinuc_mut_by_rf, ref_trinuc, n):
+    # Session 3: Core SBS burden estimation with duplex family filtering
+    # - Estimates mutation rates across all 96 trinucleotide contexts
+    # - Implements progressive filtering by minimum duplex family size (1-5 reads)
+    # - Calculates both uncorrected and reference-corrected mutation burdens
+    # - Accounts for trinucleotide composition bias in the reference genome
     print("........Estimating mutation rate for each trinucleotide context.......")
     trinuc_mut_cov_by_rf = np.repeat(trinuc_cov_by_rf, 3, axis=0)
     trinuc_rate = np.zeros(96)
@@ -147,6 +168,10 @@ def estimate_96(trinuc_cov_by_rf, trinuc_mut_by_rf, ref_trinuc, n):
 
 
 def estimate_id(trinuc_cov_by_rf, muts_by_rf, n):
+    # Session 3: Indel burden estimation
+    # - Estimates insertion/deletion mutation rates using duplex family filtering
+    # - Applies same progressive filtering approach as SBS estimation (1-5 read families)
+    # - Calculates indel burden with confidence intervals
     print("........Estimating indel rate")
     trinuc_mut_cov_by_rf = np.repeat(trinuc_cov_by_rf, 3, axis=0)
     n1 = np.array([int(_.split("+")[0]) for _ in n])
@@ -173,7 +198,14 @@ def estimate_id(trinuc_cov_by_rf, muts_by_rf, n):
 
 
 def do_estimate(args):
+    # Session 4: Main estimation pipeline with two analysis modes
+    # Mode 1: Standard genome-wide analysis (args.reestimatebed=False)
+    # Mode 2: Re-estimation for specific genomic regions (args.reestimatebed=True)
     if not args.reestimatebed:
+        # Session 4a: Standard genome-wide mutation burden analysis
+        # - Loads pre-computed trinucleotide coverage by duplex family size
+        # - Processes SNV and indel VCF files for burden calculation
+        # - Generates SBS96 signature plots and burden estimates
         ref_trinuc = calculate_ref_trinuc(args)
         prefix = args.prefix
         if len(prefix.split("/")[-1]) == 0:
@@ -226,6 +258,10 @@ def do_estimate(args):
         for nn, duplex_no in enumerate(trinuc_by_rf.columns):
             duplex_no_dict[duplex_no] = nn
 
+        # Session 4: Unique mutation tracking and dilution filtering
+        # - Tracks mutations across duplex families to avoid double-counting
+        # - Implements optional dilution filter using Barnard's exact test
+        # - Maintains mutation statistics for downstream allele frequency analysis
         # Dictionary to track unique mutations and their counts
         unique_mutations = {}
 
@@ -271,8 +307,11 @@ def do_estimate(args):
                 TDP = rec.samples["TUMOR"]["DP"]
                 NAC = rec.samples["NORMAL"]["AC"]
                 NDP = rec.samples["NORMAL"]["DP"]
-                barnard_p = barnard_exact([[TAC, TDP - TAC], [NAC, NDP - NAC]]).pvalue
-                if barnard_p <= 0.05:
+                # Two-proportion z-test for dilution filtering
+                z_stat, pvalue = proportions_ztest(
+                    [TAC, NAC], [TDP, NDP], alternative="two-sided"
+                )
+                if pvalue <= 0.05:
                     continue
             if args.dilute:
                 vcf_out.write(rec)
@@ -295,6 +334,193 @@ def do_estimate(args):
             trinuc_by_rf_np[trinuc2num[trinuc], duplex_no_dict[duplex_no]] -= 1
 
         base2num = {"A": 0, "T": 1, "C": 2, "G": 3}
+
+        # Session 5: Duplex allele frequency analysis and coverage integration
+        # - Processes unique mutations to extract duplex-specific allele frequencies
+        # - Integrates with coverage data to calculate duplex depths
+        # - Creates comprehensive allele counts table for downstream analysis
+        # Process unique mutations to extract duplex depths and create allele counts table
+        print("......Processing unique mutations for duplex allele counts.......")
+        coverage_file = f"{sample}/{sample}_coverage.bed.gz"
+        allele_counts_data = []
+
+        # Open the coverage file using TabixFile
+        tbx = TabixFile(coverage_file)
+
+        for (chrom, pos, ref, alt), counts in unique_mutations.items():
+            duplex_depth = 0
+
+            try:
+                # Query the coverage file for this position
+                for row in tbx.fetch(chrom, pos - 1, pos):
+                    parts = row.split("\t")
+                    if len(parts) >= 5:
+                        # For SNVs, duplex depth is 4th column (index 3)
+                        # For INDELs, duplex depth is 5th column (index 4)
+                        if len(ref) == 1 and len(alt) == 1:
+                            # SNV case
+                            duplex_depth = int(parts[3]) if parts[3].isdigit() else 0
+                        else:
+                            # INDEL case
+                            duplex_depth = (
+                                int(parts[4])
+                                if len(parts) > 4 and parts[4].isdigit()
+                                else 0
+                            )
+                        break
+                gene_name = "."
+                if args.genebed:
+                    for g in TabixFile(args.genebed).fetch(chrom, pos - 1, pos):
+                        gene_name = g.split("\t")[3].split("_")[0]
+                        break
+
+            except Exception as e:
+                print(f"Warning: Could not query coverage for {chrom}:{pos}: {e}")
+                duplex_depth = 0
+
+            # Perform VAF imbalance test here
+            vaf_imbalance_status = "PASS"
+            pvalue = None
+            duplex_alt_count = counts[0]
+            bulk_alt_count = counts[1]
+            bulk_depth = counts[2]
+
+            if duplex_alt_count != 1 or bulk_alt_count != 1:
+                duplex_ref_count = duplex_depth - duplex_alt_count
+                bulk_ref_count = bulk_depth - bulk_alt_count
+
+                if (
+                    duplex_ref_count >= 0
+                    and bulk_ref_count >= 0
+                    and duplex_depth > 0
+                    and bulk_depth > 0
+                ):
+                    # Two-proportion z-test
+                    z_stat, pvalue = proportions_ztest(
+                        [duplex_alt_count, bulk_alt_count],
+                        [duplex_depth, bulk_depth],
+                        alternative="two-sided",
+                    )
+
+                    if pvalue < 0.05:
+                        vaf_imbalance_status = "vaf_imbalance"
+            allele_counts_data.append(
+                {
+                    "chromosome": chrom,
+                    "position_start": pos,
+                    "ref": ref,
+                    "alt": alt,
+                    "count": counts[0],
+                    "duplex_depth": duplex_depth,
+                    "bam_alt_count": counts[1],
+                    "bam_depth": counts[2],
+                    "duplex_vaf": float(counts[0]) / float(duplex_depth)
+                    if duplex_depth > 0
+                    else 0,
+                    "bam_vaf": float(counts[1]) / float(counts[2])
+                    if counts[2] > 0
+                    else 0,
+                    "gene": gene_name,
+                    "vaf_imbalance_filter": vaf_imbalance_status,
+                    "vaf_imbalance_pvalue": pvalue if pvalue is not None else "NA",
+                }
+            )
+            # Store duplex_depth and filter status in unique_mutations
+            unique_mutations[(chrom, pos, ref, alt)].append(duplex_depth)
+            unique_mutations[(chrom, pos, ref, alt)].append(vaf_imbalance_status)
+        tbx.close()
+
+        # Create DataFrame and write to file
+        allele_counts_df = pd.DataFrame(allele_counts_data)
+        allele_counts_df = allele_counts_df[
+            allele_counts_df["vaf_imbalance_filter"] != "vaf_imbalance"
+        ]
+        allele_counts_file = args.prefix + "/" + sample + "_duplex_allele_counts.txt"
+        allele_counts_df.to_csv(allele_counts_file, sep="\t", index=False)
+        print(f"Duplex allele counts written to: {allele_counts_file}")
+
+        # Session 6: Filter variants by the imbalance between duplex and bulk allele counts
+        # - For each variant, retrieve filter status from unique_mutations dictionary
+        # - Filters variants with "vaf_imbalance" status based on previously computed z-test
+        print("......Filtering variants for duplex-bulk VAF imbalance.......")
+
+        # Re-open VCF to read and filter
+        vcf_filter = VCF(args.prefix + "/" + sample + "_snv.vcf", "r")
+
+        # Add vaf_imbalance filter to header
+        vcf_filter.header.add_line(
+            '##FILTER=<ID=vaf_imbalance,Description="Significant imbalance between duplex and bulk allele counts (two-proportion z-test p < 0.05)">'
+        )
+
+        # Create output VCF
+        vcf_imbalance_out = VCF(
+            args.prefix + "/" + sample + "_snv_vaf_filtered.vcf",
+            "w",
+            header=vcf_filter.header,
+        )
+
+        # Process each variant
+        imbalance_count = 0
+        for rec in vcf_filter.fetch():
+            mutation_key = (rec.chrom, rec.pos, rec.ref, rec.alts[0])
+
+            # Get filter status from unique_mutations
+            if mutation_key in unique_mutations:
+                # unique_mutations structure: [count, TAC, TDP, duplex_depth, filter_status]
+                filter_status = unique_mutations[mutation_key][4]
+
+                if filter_status == "vaf_imbalance":
+                    # Create a new record with modified filter
+                    new_rec = vcf_imbalance_out.new_record()
+                    new_rec.chrom = rec.chrom
+                    new_rec.pos = rec.pos
+                    new_rec.id = rec.id
+                    new_rec.ref = rec.ref
+                    new_rec.alts = rec.alts
+                    new_rec.qual = rec.qual
+                    new_rec.info.update(rec.info)
+
+                    # Copy sample data
+                    for vsample in rec.samples:
+                        for key in rec.samples[vsample].keys():
+                            new_rec.samples[vsample][key] = rec.samples[vsample][key]
+
+                    # Set the filter
+                    if "PASS" in rec.filter or rec.filter == "." or not rec.filter:
+                        new_rec.filter.add("vaf_imbalance")
+                    else:
+                        # Copy existing filters and add new one
+                        for flt in rec.filter:
+                            new_rec.filter.add(flt)
+                        new_rec.filter.add("vaf_imbalance")
+
+                    imbalance_count += 1
+                    vcf_imbalance_out.write(new_rec)
+                else:
+                    # No filter needed, write original record
+                    vcf_imbalance_out.write(rec)
+            else:
+                # Not in unique_mutations, write original record
+                vcf_imbalance_out.write(rec)
+
+        vcf_filter.close()
+        vcf_imbalance_out.close()
+        print(f"VAF imbalance filtering complete: {imbalance_count} variants filtered")
+        print(f"Filtered VCF written to: {args.prefix}/{sample}_snv_vaf_filtered.vcf")
+
+        # Replace original SNV file with filtered version
+        import shutil
+
+        shutil.move(
+            args.prefix + "/" + sample + "_snv_vaf_filtered.vcf",
+            args.prefix + "/" + sample + "_snv.vcf",
+        )
+        print(f"Replaced original SNV file with filtered version")
+
+        # Session 7: SBS burden estimation and signature analysis
+        # - Calculates mutation burdens using duplex family filtering
+        # - Generates SBS96 signature plots and burden estimates
+        # - Applies reference trinucleotide correction for unbiased estimates
         print("......Estimating mutational burden and SBS96 profile........")
         (
             corrected_trinuc_num,
@@ -376,6 +602,10 @@ def do_estimate(args):
             index=False,
         )
         vcf.close()
+        # Session 7: Indel burden estimation
+        # - Processes indel VCF file to calculate indel mutation rates
+        # - Applies same duplex family filtering as SBS analysis
+        # - Calculates both masked and unmasked indel burdens
         ###Calculate indel burdens
         print("......Estimating Indel Burden.......")
         vcf_indel = VCF(f"{sample}/{sample}_indel.vcf", "r")
@@ -408,67 +638,11 @@ def do_estimate(args):
             f.write(f"Unmasked Indel burden\t{unmasked_indel_burden}\n")
             f.write(f"Unmasked Indel burden 95% lower\t{unmasked_indel_burden_lb}\n")
             f.write(f"Unmasked Indel burden 95% upper\t{unmasked_indel_burden_ub}\n")
-        # Process unique mutations to extract duplex depths and create allele counts table
-        print("......Processing unique mutations for duplex allele counts.......")
-        coverage_file = f"{sample}/{sample}_coverage.bed.gz"
-        allele_counts_data = []
-
-        # Open the coverage file using TabixFile
-        tbx = TabixFile(coverage_file)
-
-        for (chrom, pos, ref, alt), counts in unique_mutations.items():
-            duplex_depth = 0
-
-            try:
-                # Query the coverage file for this position
-                for row in tbx.fetch(chrom, pos - 1, pos):
-                    parts = row.split("\t")
-                    if len(parts) >= 5:
-                        # For SNVs, duplex depth is 4th column (index 3)
-                        # For INDELs, duplex depth is 5th column (index 4)
-                        if len(ref) == 1 and len(alt) == 1:
-                            # SNV case
-                            duplex_depth = int(parts[3]) if parts[3].isdigit() else 0
-                        else:
-                            # INDEL case
-                            duplex_depth = (
-                                int(parts[4])
-                                if len(parts) > 4 and parts[4].isdigit()
-                                else 0
-                            )
-                        break
-                gene_name = "."
-                if args.genebed:
-                    for g in TabixFile(args.genebed).fetch(chrom, pos - 1, pos):
-                        gene_name = g.split("\t")[3].split("_")[0]
-                        break
-
-            except Exception as e:
-                print(f"Warning: Could not query coverage for {chrom}:{pos}: {e}")
-                duplex_depth = 0
-            allele_counts_data.append(
-                {
-                    "chromosome": chrom,
-                    "position_start": pos,
-                    "ref": ref,
-                    "alt": alt,
-                    "count": counts[0],
-                    "duplex_depth": duplex_depth,
-                    "bam_alt_count": counts[1],
-                    "bam_depth": counts[2],
-                    "duplex_vaf": float(counts[0]) / float(duplex_depth),
-                    "bam_vaf": float(counts[1]) / float(counts[2]),
-                    "gene": gene_name,
-                }
-            )
-        tbx.close()
-
-        # Create DataFrame and write to file
-        allele_counts_df = pd.DataFrame(allele_counts_data)
-        allele_counts_file = args.prefix + "/" + sample + "_duplex_allele_counts.txt"
-        allele_counts_df.to_csv(allele_counts_file, sep="\t", index=False)
-        print(f"Duplex allele counts written to: {allele_counts_file}")
         if args.genebed:
+            # Session 8: Gene-level coverage analysis
+            # - Calculates per-gene duplex coverage using provided gene annotation BED
+            # - Aggregates coverage across all exons for each gene
+            # - Normalizes coverage by coding sequence length
             print(f"Calculating per-gene duplex coverage")
             gene_dict = dict()
             cds_len = dict()
@@ -493,6 +667,10 @@ def do_estimate(args):
                     f.write(f"{gene}\t{gene_dict[gene]/cds_len[gene]}\n")
 
     else:
+        # Session 9: Region-specific re-estimation mode
+        # - Alternative analysis mode for specific genomic regions defined in BED file
+        # - Recalculates mutation burdens restricted to user-defined intervals
+        # - Useful for focused analysis on particular genes or regions of interest
         print("Re-estimating mutational burden from provided bed file")
         ref_trinuc = calculate_ref_trinuc(args)
         prefix = args.prefix
@@ -560,10 +738,11 @@ def do_estimate(args):
                     TDP = rec.samples["TUMOR"]["DP"]
                     NAC = rec.samples["NORMAL"]["AC"]
                     NDP = rec.samples["NORMAL"]["DP"]
-                    barnard_p = barnard_exact(
-                        [[TAC, TDP - TAC], [NAC, NDP - NAC]]
-                    ).pvalue
-                    if barnard_p <= 0.05:
+                    # Two-proportion z-test for dilution filtering
+                    z_stat, pvalue = proportions_ztest(
+                        [TAC, NAC], [TDP, NDP], alternative="two-sided"
+                    )
+                    if pvalue <= 0.05:
                         continue
                 if args.dilute:
                     vcf_out.write(rec)

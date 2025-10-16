@@ -17,5 +17,6 @@ setup(
         "scipy>=1.11.3",
         "pandas>=1.5.3",
         "h5py>=3.10.0",
+        "statsmodels>=0.14.5",
     ],
 )
