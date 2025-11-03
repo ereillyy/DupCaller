@@ -113,7 +113,7 @@ def genotypeDSSnv(seqs, reference_int, trinuc_int, prior_mat, antimask, params):
     F1R2_qual_mat = np.zeros([m_F1R2, n])
     F2R1_seq_mat = np.zeros([m_F2R1, n], dtype=int)  # Base(ATCG) x reads x pos
     F2R1_qual_mat = np.zeros([m_F2R1, n])
-    del_rows = list()
+    # del_rows = list()
     for mm, seq in enumerate(F1R2):
         qualities = seq.query_alignment_qualities
         sequence = np.array(list(seq.query_alignment_sequence))
@@ -144,10 +144,10 @@ def genotypeDSSnv(seqs, reference_int, trinuc_int, prior_mat, antimask, params):
                 ref_length_plus_del += ct[1]
         F1R2_seq_mat[mm, current_mat_ind:n] = 4
         F1R2_qual_mat[mm, current_mat_ind:n] = 0
-        if ref_length_plus_del / n <= 0.8:
-            del_rows.append(mm)
-    F1R2_seq_mat = np.delete(F1R2_seq_mat, del_rows, 0)
-    F1R2_qual_mat = np.delete(F1R2_qual_mat, del_rows, 0)
+        # if ref_length_plus_del / n <= 0.8:
+        # del_rows.append(mm)
+    # F1R2_seq_mat = np.delete(F1R2_seq_mat, del_rows, 0)
+    # F1R2_qual_mat = np.delete(F1R2_qual_mat, del_rows, 0)
     del_rows = list()
     for mm, seq in enumerate(F2R1):
         qualities = seq.query_alignment_qualities
@@ -179,20 +179,20 @@ def genotypeDSSnv(seqs, reference_int, trinuc_int, prior_mat, antimask, params):
                 ref_length_plus_del += ct[1]
         F2R1_seq_mat[mm, current_mat_ind:n] = 4
         F2R1_qual_mat[mm, current_mat_ind:n] = 0
-        if ref_length_plus_del / n <= 0.8:
-            del_rows.append(mm)
-    F2R1_seq_mat = np.delete(F2R1_seq_mat, del_rows, 0)
-    F2R1_qual_mat = np.delete(F2R1_qual_mat, del_rows, 0)
+        # if ref_length_plus_del / n <= 0.8:
+        # del_rows.append(mm)
+    # F2R1_seq_mat = np.delete(F2R1_seq_mat, del_rows, 0)
+    # F2R1_qual_mat = np.delete(F2R1_qual_mat, del_rows, 0)
 
     F1R2_qual_mat[F1R2_qual_mat <= params["minBq"]] = 0
     F2R1_qual_mat[F2R1_qual_mat <= params["minBq"]] = 0
 
     F1R2_qual_mat_0_count = np.count_nonzero(F1R2_qual_mat == 0, axis=0)
     F2R1_qual_mat_0_count = np.count_nonzero(F2R1_qual_mat == 0, axis=0)
-    # antimask[(F1R2_qual_mat_0_count + F2R1_qual_mat_0_count) >= 3] = False
 
     F1R2_qual_mat_merged = np.zeros([4, n])
     F1R2_count_mat = np.zeros([4, n], dtype=int)
+
     for nn in range(0, 4):
         F1R2_qual_mat_merged[nn, :] = F1R2_qual_mat.sum(
             axis=0, where=(F1R2_seq_mat == nn)
@@ -211,7 +211,11 @@ def genotypeDSSnv(seqs, reference_int, trinuc_int, prior_mat, antimask, params):
             np.logical_and(F2R1_seq_mat == nn, F2R1_qual_mat != 0)
         ).sum(axis=0)
     total_count_mat = F1R2_count_mat + F2R1_count_mat
-    # antimask[(total_count_mat >= 1).sum(axis=0) > 2] = False
+    antimask[
+        ((F1R2_qual_mat_0_count + F2R1_qual_mat_0_count) / (m_F1R2 + m_F2R1))
+        >= params["maxZeroQualFrac"]
+    ] = False
+    antimask[(total_count_mat >= 1).sum(axis=0) > 2] = False
     base1_int = np.argmax(total_count_mat, axis=0)
     total_count_without_base1 = total_count_mat.copy()
     total_count_without_base1[base1_int, np.ogrid[:n]] = -1

@@ -150,6 +150,7 @@ def do_call(args):
         "isLearn": None,
         "normalVAF": args.naf,
         "rescue": args.rescue,
+        "maxZeroQualFrac": args.maxZeroQualFrac,
     }
     if args.amperrfile:
         params["amperr_file"] = args.amperrfile

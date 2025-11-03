@@ -244,6 +244,13 @@ if __name__ == "__main__":
         help="output discarded variants with reason in the filter field",
         default=False,
     )
+    call_parser.add_argument(
+        "--maxZeroQualFrac",
+        "-z",
+        type=float,
+        help="Maximum fraction of bases in a read family that has 0 quality",
+        default=0.5,
+    )
     ###########
     """
     Learn Arguments
