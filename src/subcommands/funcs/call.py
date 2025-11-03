@@ -593,7 +593,7 @@ def callBam(params, processNo):
         ):
             continue
         # if "I" in rec.cigarstring or "D" in rec.cigarstring:
-        # if len(findIndels(rec)) >= 2:
+        # if len(   findIndels(rec)) >= 2:
         # continue
         pass_read_num += 1
         start = rec.reference_start
@@ -896,7 +896,6 @@ def callBam(params, processNo):
                     # Create unmasked version that only excludes trinuc > 64
                     unmasked_antimask = np.all(~masks[2:, :], axis=0)
                     unmasked_antimask[trinuc_np[start_ind:end_ind] > 64] = False
-
                     ### If the whole reads are masked:
                     if not np.any(unmasked_antimask):
                         continue

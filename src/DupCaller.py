@@ -222,13 +222,13 @@ if __name__ == "__main__":
     call_parser.add_argument(
         "--minRef",
         type=float,
-        help="minimum consensus quality of alt allele, if not 0, in a read group to be considered for training",
+        help="minimum number of ref allele, if not 0, in a read group to be considered for training",
         default=2,
     )
     call_parser.add_argument(
         "--minAlt",
         type=float,
-        help="minimum consensus quality of alt allele, if not 0, in a read group to be considered for training",
+        help="minimum number of alt allele, if not 0, in a read group to be considered for training",
         default=2,
     )
     call_parser.add_argument(

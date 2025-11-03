@@ -189,7 +189,7 @@ def genotypeDSSnv(seqs, reference_int, trinuc_int, prior_mat, antimask, params):
 
     F1R2_qual_mat_0_count = np.count_nonzero(F1R2_qual_mat == 0, axis=0)
     F2R1_qual_mat_0_count = np.count_nonzero(F2R1_qual_mat == 0, axis=0)
-    antimask[(F1R2_qual_mat_0_count + F2R1_qual_mat_0_count) >= 3] = False
+    # antimask[(F1R2_qual_mat_0_count + F2R1_qual_mat_0_count) >= 3] = False
 
     F1R2_qual_mat_merged = np.zeros([4, n])
     F1R2_count_mat = np.zeros([4, n], dtype=int)
@@ -211,7 +211,7 @@ def genotypeDSSnv(seqs, reference_int, trinuc_int, prior_mat, antimask, params):
             np.logical_and(F2R1_seq_mat == nn, F2R1_qual_mat != 0)
         ).sum(axis=0)
     total_count_mat = F1R2_count_mat + F2R1_count_mat
-    antimask[(total_count_mat >= 1).sum(axis=0) > 2] = False
+    # antimask[(total_count_mat >= 1).sum(axis=0) > 2] = False
     base1_int = np.argmax(total_count_mat, axis=0)
     total_count_without_base1 = total_count_mat.copy()
     total_count_without_base1[base1_int, np.ogrid[:n]] = -1
