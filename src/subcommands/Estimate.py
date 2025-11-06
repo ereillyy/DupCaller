@@ -446,6 +446,11 @@ def do_estimate(args):
             except Exception as e:
                 print(f"Warning: Could not query coverage for {chrom}:{pos}: {e}")
                 duplex_depth = 0
+            if duplex_depth == 0:
+                print(
+                    f"duplex depth for location {chrom}:{pos} is 0, skipping the mutation..."
+                )
+                continue
             allele_counts_data.append(
                 {
                     "chromosome": chrom,
