@@ -124,13 +124,14 @@ These options should be understood by the user and customized accordingly. Some 
 | -maf | --maxAF | maximum allele fraction to call a somatic mutation. Must be set to an appropriate value when a matched normal (-n) is not available | 1 |
 | -tt | --trimF | ignore mutation if it is less than n bps from the ends of template | 7 |
 | -tr | --trimR | ignore mutation if it is less than n bps from the ends of read | 7 |
-| -id | --indelBed | an indel enhanced panel of normal (ePoN) used for indel calling | None | 
+| -id | --indelBed | an indel enhanced panel of normal (ePoN) used for indel calling | None |
 | --naf | |maximum VAF in matched normal for a mutation to be called | 0.01 |
 | --rescue | | output discarded variants with reason in the filter field | False |
 | -nm | --nmflt | filter out any reads that have an edit distance larger than this value | 5 |
 | -ax | --minMeanASXS | minimum mean AS-XS alignment score difference for a read group to be considered for calling (adjustable parameter for read quality filtering) | 50 |
 | -gaf | --germlineAfCutoff | locations at which there is a germline mutation with population af larger than this threshold will be skipped | 0.001 |
 | -d | --minNdepth | minimum coverage in normal for called variants | 10 |
+| -z | --maxZeroQualFrac | maximum fraction of bases in a read family that has 0 quality (filters positions exceeding this threshold) | 0.5 |
 **Advanced**
 
 These are mostly variant calling model parameters and adjustment is unnecessary for general use.
