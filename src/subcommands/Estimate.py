@@ -263,8 +263,10 @@ def do_estimate(args):
                 unique_mutations[mutation_key] = [0, TAC, TDP]
                 count_flag = 1
             unique_mutations[mutation_key][0] += 1
+            """
             if count_flag == 0:
                 continue
+            """
             F1R2 = rec.info["F1R2"]
             F2R1 = rec.info["F2R1"]
             if TAC > 1 and args.dilute:
