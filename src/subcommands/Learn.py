@@ -21,7 +21,7 @@ from .funcs.misc import getAlignmentObject as BAM
 def do_learn(args):
     params = {
         "tumorBam": args.bam,
-        "normalBam": None,
+        "normalBams": None,
         "germline": args.germline,
         "reference": args.reference,
         "output": args.output,
@@ -69,7 +69,7 @@ def do_learn(args):
         except OSError as e:
             if e.errno != errno.EEXIST:
                 raise
-    bamObject = BAM(args.bam, args.reference, "rb")
+    bamObject = BAM(args.bam, "rb")
 
     """
     Execulte variant calling
@@ -105,9 +105,9 @@ def do_learn(args):
             "...........Spliting genomic regions for parallel execution................"
         )
         # print(args.threads)
-        # if args.normalBam:
+        # if args.normalBams:
         cutSites, chunkSize, contigs = splitBamRegions(
-            [args.bam], args.threads, contigs, args.windowSize
+            [args.bam], args.threads, contigs, args.windowSize, args.reference
         )
         # else:
         # cutSites, chunkSize, contigs = splitBamRegions(
