@@ -45,7 +45,7 @@ if __name__ == "__main__":
     call_parser.add_argument(
         "-gaf",
         "--germlineAfCutoff",
-        type=str,
+        type=float,
         help="minimum population af to exclude a germline mutation",
         default=0.001,
     )
@@ -255,7 +255,7 @@ if __name__ == "__main__":
     learn_parser.add_argument(
         "-gaf",
         "--germlineAfCutoff",
-        type=str,
+        type=float,
         help="minimum population af to exclude a germline mutation",
         default=0.001,
     )
@@ -358,6 +358,13 @@ if __name__ == "__main__":
         help="minimum consensus quality of alt allele, if not 0, in a read group to be considered for training",
         default = 2,
     ) 
+    learn_parser.add_argument(
+        "-ax",
+        "--minMeanASXS",
+        type=float,
+        help="minimum mean AS-XS for a read group to be considered for calling",
+        default=50,
+    )
     """
     aggregate_parser = subparsers.add_parser(
         "aggregate", help="Aggregate learned mismatch profile from multiple samples"
