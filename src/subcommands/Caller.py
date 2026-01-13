@@ -677,8 +677,8 @@ def do_call(args):
     if args.threads > 1:
         mergeStartTime = time.time()
         sample_name = os.path.basename(args.output)
-        sample_dir = os.path.join("tmp", sample_name)
-        merge_and_combine_coverage_files(sample_name, sample_dir, args.threads)
+        tmp_path_prefix = os.path.join("tmp", args.output) # this already has the sample prefix (same as *_snv.vcf and *_indel.vcf). will follow same pattern with these temp files
+        merge_and_combine_coverage_files(tmp_path_prefix, args.threads)
         print(
             "..............Completed coverage merging in "
             + str((time.time() - mergeStartTime) / 60)
@@ -686,7 +686,7 @@ def do_call(args):
         )
 
 
-def merge_and_combine_coverage_files(sample_name, sample_dir, nprocess):
+def merge_and_combine_coverage_files(tmp_path_prefix, nprocess):
     """
     1. Merge adjacent next_region and prev_region files by summing columns 4 and 5
     2. Combine all files in the correct order using cat
@@ -695,9 +695,9 @@ def merge_and_combine_coverage_files(sample_name, sample_dir, nprocess):
     
     # Step 1: Create overlap files by merging adjacent regions
     for n in range(nprocess - 1):
-        next_file = os.path.join(sample_dir, f"{sample_name}_{n}_coverage_next_region.tmp.bed.gz")
-        prev_file = os.path.join(sample_dir, f"{sample_name}_{n+1}_coverage_prev_region.tmp.bed.gz")
-        overlap_file = os.path.join(sample_dir, f"{sample_name}_{n}_{n+1}_overlap_coverage.tmp.bed.gz")
+        next_file = tmp_path_prefix + f"_{n}_coverage_next_region.tmp.bed.gz"
+        prev_file = tmp_path_prefix + f"_{n+1}_coverage_prev_region.tmp.bed.gz"
+        overlap_file = tmp_path_prefix + f"_{n}_{n+1}_overlap_coverage.tmp.bed.gz"
         
         merge_adjacent_bed_files(next_file, prev_file, overlap_file)
     
@@ -706,19 +706,19 @@ def merge_and_combine_coverage_files(sample_name, sample_dir, nprocess):
     
     for n in range(nprocess):
         # Add main coverage file
-        main_file = os.path.join("tmp", f"{sample_name}_{n}_coverage.bed.gz")
+        main_file = tmp_path_prefix + f"_{n}_coverage.bed.gz"
         if os.path.exists(main_file):
             files_to_combine.append(main_file)
         
         # Add overlap file (except for the last process)
         if n < nprocess - 1:
-            overlap_file = os.path.join(sample_dir, f"{sample_name}_{n}_{n+1}_overlap_coverage.tmp.bed.gz")
+            overlap_file = tmp_path_prefix + f"_{n}_{n+1}_overlap_coverage.tmp.bed.gz"
             if os.path.exists(overlap_file):
                 files_to_combine.append(overlap_file)
     
     # Step 3: Combine files using cat command
     if files_to_combine:
-        final_output = os.path.join(sample_dir, f"{sample_name}_coverage.bed.gz")
+        final_output = tmp_path_prefix + f"_coverage.bed.gz"
         
         # Use cat to combine files
         cmd = f"cat {' '.join(files_to_combine)} > {final_output}"
@@ -739,7 +739,7 @@ def merge_and_combine_coverage_files(sample_name, sample_dir, nprocess):
             print(f"Error combining files: {e}")
         
         # Clean up temporary files
-        cleanup_temp_files(sample_name, sample_dir, nprocess)
+        cleanup_temp_files(tmp_path_prefix, nprocess)
     else:
         print("No coverage files found to combine")
 
@@ -785,19 +785,19 @@ def merge_adjacent_bed_files(next_file, prev_file, output_file):
                 f.write(f"{chrom}\t{start}\t{end}\t{cov1}\t{cov2}\n")
 
 
-def cleanup_temp_files(sample_name, sample_dir, nprocess):
+def cleanup_temp_files(tmp_path_prefix, nprocess):
     """
     Clean up temporary files
     """
     for n in range(nprocess):
         temp_files = [
-            os.path.join(sample_dir, f"{sample_name}_{n}_coverage_prev_region.tmp.bed.gz"),
-            os.path.join(sample_dir, f"{sample_name}_{n}_coverage_next_region.tmp.bed.gz"),
-            os.path.join(sample_dir, f"{sample_name}_{n}_coverage.bed.gz"),
+            tmp_path_prefix + f"_{n+1}_coverage_prev_region.tmp.bed.gz",
+            tmp_path_prefix + f"_{n}_coverage_next_region.tmp.bed.gz",
+            tmp_path_prefix + f"_{n}_coverage.bed.gz",
         ]
         
         if n < nprocess - 1:
-            temp_files.append(os.path.join(sample_dir, f"{sample_name}_{n}_{n+1}_overlap_coverage.tmp.bed.gz"))
+            temp_files.append(tmp_path_prefix + f"_{n}_{n+1}_overlap_coverage.tmp.bed.gz")
         
         for temp_file in temp_files:
             if os.path.exists(temp_file):

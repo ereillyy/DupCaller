@@ -297,19 +297,10 @@ def callBam(params, processNo):
     pcut = params["pcutoff"]
     isLearn = params.get("isLearn", False)
     nn = processNo
-    output = os.path.join("tmp", params["output"].lstrip("/") + "_" + str(nn))
-    # Extract sample name from output path
-    sample_name = os.path.basename(params["output"].lstrip("/"))
-    sample_dir = os.path.join("tmp", sample_name)
-    if not os.path.exists(os.path.dirname(output)):
+    tmp_path_prefix_nn = os.path.join("tmp", params["output"].lstrip("/") + "_" + str(nn))
+    if not os.path.exists(os.path.dirname(tmp_path_prefix_nn)):
         try:
-            os.makedirs(os.path.dirname(output))
-        except OSError as e:
-            if e.errno != errno.EEXIST:
-                raise
-    if not os.path.exists(sample_dir):
-        try:
-            os.makedirs(sample_dir)
+            os.makedirs(os.path.dirname(tmp_path_prefix_nn))
         except OSError as e:
             if e.errno != errno.EEXIST:
                 raise
@@ -517,9 +508,9 @@ def callBam(params, processNo):
     duplex_count = 0
     reference_mat_chrom = "anyChrom"
     reference_mat_start = 0
-    locus_bed = bgzf.open(output + "_coverage.bed.gz", "wt")
-    locus_bed_prev = bgzf.open(output + "_coverage_prev_region.tmp.bed.gz", "wt")
-    locus_bed_next = bgzf.open(output + "_coverage_next_region.tmp.bed.gz", "wt")
+    locus_bed = bgzf.open(tmp_path_prefix_nn + "_coverage.bed.gz", "wt")
+    locus_bed_prev = bgzf.open(tmp_path_prefix_nn + "_coverage_prev_region.tmp.bed.gz", "wt")
+    locus_bed_next = bgzf.open(tmp_path_prefix_nn + "_coverage_next_region.tmp.bed.gz", "wt")
     processed_read_names = set()
     if len(regions[0]) == 1:
         region_start = regions[0][0] + ":0"
